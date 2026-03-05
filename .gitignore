@@ -1,0 +1,17 @@
+build*/
+.cache/
+.vscode/
+__pycache__/
+.venv/
+models/
+proj/
+sd3.5
+SD3.5
+*.svg
+*.data
+*.folded
+*.perf
+Pipfile
+tools/llama_tf_to_qnn_bin
+tools/process_image
+*.log

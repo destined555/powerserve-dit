@@ -1,0 +1,35 @@
+add_executable(
+    run-sd
+    run-sd.cpp
+    ${PROJECT_SOURCE_DIR}/app/common/cmdline-sd.cpp
+    ${PROJECT_SOURCE_DIR}/src/core/config-sd.cpp
+    ${PROJECT_SOURCE_DIR}/src/encode/sd_text_encoder_model_loader.cpp
+    ${PROJECT_SOURCE_DIR}/src/encode/sd_text_encoder_vocab_loader.cpp
+    ${PROJECT_SOURCE_DIR}/src/encode/sd_prompt_tokenizer.cpp
+    ${PROJECT_SOURCE_DIR}/src/encode/sd_text_encoder_shape_utils.cpp
+    ${PROJECT_SOURCE_DIR}/src/encode/sd_text_encoder_runner.cpp
+    ${PROJECT_SOURCE_DIR}/src/encode/sd_text_encoder_parity.cpp
+    ${PROJECT_SOURCE_DIR}/src/encode/sd_text_encoder_validation.cpp
+    ${PROJECT_SOURCE_DIR}/src/scheduler/sd_scheduler.cpp
+    ${PROJECT_SOURCE_DIR}/src/vae/sd35_vae.cpp
+    ${PROJECT_SOURCE_DIR}/src/vae/vae.cpp
+)
+target_include_directories(
+    run-sd
+    PRIVATE
+    ${PROJECT_SOURCE_DIR}/src
+    ${PROJECT_SOURCE_DIR}/app/common
+    ${PROJECT_SOURCE_DIR}/libs/stb_headers/stb
+    ${PROJECT_SOURCE_DIR}/libs/llama_tokenizer
+)
+target_link_libraries(
+    run-sd
+    PRIVATE
+    fmt
+    ggml
+    llama_tokenizer
+    nlohmann_json::nlohmann_json
+    CLI11::CLI11
+)
+
+powerserve_add_binary(run-sd)
