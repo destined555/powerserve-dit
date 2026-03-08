@@ -50,6 +50,17 @@ auto load_f32_tensor_from_bin(const powerserve::Path &path, size_t expect_elemen
     return data;
 }
 
+auto can_export_decoded_png(const powerserve::SD35VAEDecodeResult &decoded) -> bool {
+    if (decoded.batch != 1 || decoded.channels != 3) {
+        return false;
+    }
+    if (decoded.width <= 0 || decoded.height <= 0) {
+        return false;
+    }
+    const size_t expect = static_cast<size_t>(decoded.width) * static_cast<size_t>(decoded.height) * 3;
+    return decoded.data.size() == expect;
+}
+
 } // namespace
 
 int main(int argc, char *argv[]) {
@@ -68,19 +79,29 @@ int main(int argc, char *argv[]) {
         powerserve::SDTextEncoderModelLoader text_encoder_loader;
         text_encoder_loader.load(work_folder, config.text_encode_config);
 
-        // 阶段 3：加载并校验内置词表资源。
-        const auto vocab_pack = powerserve::SDTextEncoderVocabLoader::load_embedded();
-        powerserve::SDTextEncoderVocabLoader::validate(vocab_pack);
-
-        // 阶段 4：将正向/反向 prompt 分词并编码成 token id。
-        powerserve::SDPromptTokenizer prompt_tokenizer(vocab_pack);
-        const auto tokenized = prompt_tokenizer.encode_prompt_pair(
-            config.hyper_params.prompt,
-            config.hyper_params.negative_prompt
-        );
+        powerserve::SDPromptTokenization tokenized;
+        {
+            // 阶段 3：加载并校验内置词表资源。
+            auto vocab_pack = powerserve::SDTextEncoderVocabLoader::load_embedded();
+            auto vocab_info =powerserve::SDTextEncoderVocabLoader::validate(vocab_pack);
+            POWERSERVE_LOG_INFO(
+                "[run-sd] 阶段 3 完成：词表资源加载完成（clip merges {} 行，t5 vocab={}）。",
+                vocab_info.clip_merges_lines,
+                vocab_info.t5_vocab_size
+            );
+            // 阶段 4：将正向/反向 prompt 分词并编码成 token id。
+            powerserve::SDPromptTokenizer prompt_tokenizer(vocab_pack);
+            tokenized = prompt_tokenizer.encode_prompt_pair(
+                config.hyper_params.prompt,
+                config.hyper_params.negative_prompt
+            );
+            POWERSERVE_LOG_INFO("[run-sd] 阶段 4 完成：prompt -> token id 编码完成。");
+        } 
 
         // 阶段 5：校验 token 编码结果的结构合法性（长度、BOS/EOS、权重对齐等）。
         powerserve::verify_prompt_pair_tokenization_or_throw(tokenized);
+        POWERSERVE_LOG_INFO("[run-sd] 阶段 5 完成：token 结构校验通过。");
+
 
         // 阶段 6：执行文本编码器前向计算，将 token id 转为条件向量。
         powerserve::SDTextEncoderRunner runner(
@@ -89,9 +110,12 @@ int main(int argc, char *argv[]) {
             static_cast<int>(config.hyper_params.n_threads)
         );
         const auto embeddings = runner.encode_prompt_pair(tokenized);
+        POWERSERVE_LOG_INFO("[run-sd] 阶段 6 完成：token id -> embedding 计算完成。");
+
 
         // 阶段 7：校验编码器输出的 shape 与维度约束。
         powerserve::verify_prompt_pair_embeddings_or_throw(embeddings);
+        POWERSERVE_LOG_INFO("[run-sd] 阶段 7 完成：embedding 结构校验通过。");
 
         // 阶段 8：按参数执行可选的 dump / parity compare。
         powerserve::SDTextEncoderParityOptions parity_options;
@@ -100,6 +124,27 @@ int main(int argc, char *argv[]) {
         parity_options.max_abs_threshold  = args.compare_max_abs_threshold;
         parity_options.rmse_threshold     = args.compare_rmse_threshold;
         powerserve::maybe_run_prompt_pair_parity(parity_options, embeddings);
+        POWERSERVE_LOG_INFO("[run-sd] 阶段 8 完成：可选 parity 流程处理完成。");
+
+        // 阶段 9：输出编码最终结果摘要。
+        auto log_shape = [](const char *name, size_t dim0, size_t dim1) {
+            POWERSERVE_LOG_INFO("[run-sd][result] {} shape=({}, {})", name, dim0, dim1);
+        };
+
+        log_shape(
+            "prompt.crossattn",
+            embeddings.prompt.crossattn_tokens,
+            embeddings.prompt.crossattn_dim
+        );
+        log_shape("prompt.vector", 1, embeddings.prompt.vector_dim);
+        log_shape(
+            "negative_prompt.crossattn",
+            embeddings.negative_prompt.crossattn_tokens,
+            embeddings.negative_prompt.crossattn_dim
+        );
+        log_shape("negative_prompt.vector", 1, embeddings.negative_prompt.vector_dim);
+        POWERSERVE_LOG_INFO("[run-sd] 阶段 9 完成：编码结果 shape 输出完成。");
+        text_encoder_loader.clear();
 
         // 阶段 10：根据 --sample_method 选择 sigma 生成策略（未指定时默认 discrete）。
         powerserve::SDSchedulerRequest scheduler_request;
@@ -110,14 +155,18 @@ int main(int argc, char *argv[]) {
         scheduler_request.flow_shift    = config.sd_model_config.flow_shift;
 
         const auto schedule = powerserve::build_sd35_scheduler(scheduler_request);
-        (void)schedule;
+        POWERSERVE_LOG_INFO(
+            "[run-sd] 阶段 10 完成：strategy={}, sigma_len={}",
+            schedule.resolved_scheduler,
+            schedule.sigmas.size()
+        );
 
         // 阶段 11：加载 SD3.5 VAE 权重。
         powerserve::SD35VAE vae_runner;
         vae_runner.load(work_folder, config.vae_config);
         POWERSERVE_LOG_INFO("[run-sd] 阶段 11 完成：SD3.5 VAE 权重加载完成。");
 
-        // 阶段 12：读取 latent 执行 VAE 计算并导出对比文件。
+        // 阶段 12：读取 latent 执行 VAE 计算，并按需导出对比文件。
         if (config.hyper_params.width % powerserve::SD35VAE::kVaeScaleFactor != 0 ||
             config.hyper_params.height % powerserve::SD35VAE::kVaeScaleFactor != 0) {
             throw std::runtime_error(
@@ -143,14 +192,16 @@ int main(int argc, char *argv[]) {
             static_cast<int>(config.hyper_params.n_threads)
         );
 
-        const powerserve::Path compare_dir =
-            args.vae_compare_dir.empty() ? work_folder : powerserve::Path(args.vae_compare_dir);
-        const auto outputs = powerserve::export_sd35_vae_compare_outputs(compare_dir, decoded);
+        powerserve::Path png_path;
+        if (can_export_decoded_png(decoded)) {
+            png_path = work_folder / "run_sd_latent_vae.png";
+            powerserve::write_decoded_png(png_path, decoded);
+        }
+
 
         POWERSERVE_LOG_INFO(
-            "[run-sd] 阶段 12 完成：图片='{}'，对比文件='{}'",
-            outputs.png_path.string(),
-            outputs.decoded_bin_path.string()
+            "[run-sd] 阶段 12 完成：图片='{}‘",
+            png_path.empty() ? "(skipped)" : png_path.string()
         );
     } catch (const std::exception &err) {
         POWERSERVE_LOG_ERROR("run-sd failed: {}", err.what());

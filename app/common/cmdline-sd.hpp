@@ -65,7 +65,7 @@ struct CommandLineArgumentSD {
     /// Input latent bin path (float32 raw, layout [W/8, H/8, 16, 1]).
     std::string latent_bin = "/home/frp/jinye/test-vae/latent.bin";
 
-    /// Output directory for VAE comparison artifacts (PNG + decoded bin).
+    /// Optional output directory for VAE comparison bin artifact (powerserve_decoded.bin).
     std::string vae_compare_dir;
 };
 

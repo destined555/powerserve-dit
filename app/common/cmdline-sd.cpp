@@ -67,8 +67,8 @@ CommandLineArgumentSD parse_command_line_sd(const std::string_view program_name,
     app.add_option(
         "--vae-compare-dir",
         args.vae_compare_dir,
-        "Output directory for VAE compare artifacts (run_sd_latent_vae.png + powerserve_decoded.bin). "
-        "Default: workfolder."
+        "Optional output directory for VAE compare bin artifact (powerserve_decoded.bin). "
+        "When omitted, compare bin export is skipped."
     );
 
     try {
