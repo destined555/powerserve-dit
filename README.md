@@ -73,7 +73,7 @@ cmake --build build
 
 ### 2.1 encode
 
-`run-sd.cpp` line 112 的 `embedding` 结构如下：
+`run-sd.cpp` line 112 的 `embedding.` 结构如下：
 
 ```cpp
 struct SDTextEncoderEmbeddings {
@@ -88,6 +88,10 @@ struct SDTextEncoderEmbeddings {
     size_t crossattn_tokens = 0;
 
     size_t vector_dim      = 0;
+};
+struct SDPromptPairEmbeddings {
+    SDTextEncoderEmbeddings prompt;
+    SDTextEncoderEmbeddings negative_prompt;
 };
 ```
 
