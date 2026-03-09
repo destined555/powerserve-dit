@@ -192,15 +192,24 @@ int main(int argc, char *argv[]) {
             static_cast<int>(config.hyper_params.n_threads)
         );
 
+        // PNG 始终导出到 workfolder，便于快速查看 run-sd 当前结果。
         powerserve::Path png_path;
         if (can_export_decoded_png(decoded)) {
             png_path = work_folder / "run_sd_latent_vae.png";
             powerserve::write_decoded_png(png_path, decoded);
         }
 
+        // decoded bin 仅在显式指定 --vae-compare-dir 时导出。
+        powerserve::Path decoded_bin_path;
+        if (!args.vae_compare_dir.empty()) {
+            decoded_bin_path = powerserve::Path(args.vae_compare_dir) / "powerserve_decoded.bin";
+            powerserve::write_f32_tensor_to_bin(decoded_bin_path, decoded.data);
+        }
+
 
         POWERSERVE_LOG_INFO(
-            "[run-sd] 阶段 12 完成：图片='{}‘",
+            "[run-sd] 阶段 12 完成：decoded_bin='{}', 图片='{}‘",
+            decoded_bin_path.empty() ? "(skipped)" : decoded_bin_path.string(),
             png_path.empty() ? "(skipped)" : png_path.string()
         );
     } catch (const std::exception &err) {
